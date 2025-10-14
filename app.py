@@ -335,7 +335,7 @@ def agent_full_auto(message, say):
 
     threading.Thread(target=_do_all, daemon=True).start()
 
-// 提案/開始用の会話セッション管理
+# 提案/開始用の会話セッション管理
 SESSIONS = {}
 
 # 提案（キーワードのみ）: 自動スキャン→（任意質問）→確認→PR（提案モード）
