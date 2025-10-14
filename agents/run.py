@@ -69,13 +69,42 @@ def run_propose(goal: str, push_and_pr: bool) -> Optional[str]:
     if not cfg.github_token:
         raise RuntimeError("Missing GITHUB_TOKEN for PR creation")
 
+    # Build a clean PR title/body
+    changed_paths = [f.path for f in files]
+    title = f"[DGM] UI improvements: {goal[:60]}"
+    body_lines = [
+        "### Summary",
+        goal,
+        "",
+        "### Changes",
+        "- Scope limited to templates/*.html and static/*.css",
+        "- Small, low-risk UI tweaks (accessibility/readability)",
+        "",
+        "### Modified Files",
+    ]
+    for p in changed_paths:
+        body_lines.append(f"- `{p}`")
+    body_lines += [
+        "",
+        "### Rationale",
+        "- Improve a11y (landmarks, skip links, icons hidden from screen readers)",
+        "- Remove inline styles; consolidate into CSS",
+        "",
+        "### Validation",
+        "- Lint/format pass",
+        "- Visual smoke check (no layout break)",
+        "",
+        "—\nThis PR was created by the DGM agent.",
+    ]
+    pr_body = "\n".join(body_lines)
+
     pr_url = create_pull_request(
         cfg.github_token,
         slug,
         head=branch,
         base=base_branch,
-        title=f"Agent Proposal: {goal[:60]}",
-        body=f"Automated proposal for goal: {goal}\n\nThis PR was created by the agent.",
+        title=title,
+        body=pr_body,
     )
     return pr_url
 
@@ -95,4 +124,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

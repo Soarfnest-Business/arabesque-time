@@ -114,13 +114,25 @@ def review_and_act(pr_number: int, auto_fix: bool = True, auto_merge: bool = Tru
 
     decision = _openai_decide(cfg, pr.title, pr.body or "", files)
 
-    # Post review
-    event = {
-        "approve": "APPROVE",
-        "request_changes": "REQUEST_CHANGES",
-        "reject": "REQUEST_CHANGES",
-    }[decision.action]
-    pr.create_review(body=decision.summary, event=event)
+    # Determine if the acting user is the PR author (GitHub forbids reviewing own PR)
+    try:
+        acting_login = gh.get_user().login
+    except Exception:
+        acting_login = ""
+    pr_author = (pr.user.login or "") if getattr(pr, "user", None) else ""
+    own_pr = acting_login.lower() == pr_author.lower() and acting_login != ""
+
+    # Post review or fall back to comment when own PR
+    if not own_pr:
+        event = {
+            "approve": "APPROVE",
+            "request_changes": "REQUEST_CHANGES",
+            "reject": "REQUEST_CHANGES",
+        }[decision.action]
+        pr.create_review(body=decision.summary, event=event)
+    else:
+        # Use a plain comment to avoid 422 on self-reviews
+        pr.create_issue_comment(f"Auto-review (self): {decision.action}\n\n{decision.summary}")
 
     if decision.action == "approve" and auto_merge:
         pr.merge(merge_method="squash", commit_message=pr.title)
@@ -155,11 +167,17 @@ def review_and_act(pr_number: int, auto_fix: bool = True, auto_merge: bool = Tru
         files2, _ = _collect_pr_context(pr)
         decision2 = _openai_decide(cfg, pr.title, pr.body or "", files2)
         if decision2.action == "approve" and auto_merge:
-            pr.create_review(body="自動修正後の再レビュー: 承認", event="APPROVE")
+            if not own_pr:
+                pr.create_review(body="自動修正後の再レビュー: 承認", event="APPROVE")
+            else:
+                pr.create_issue_comment("自動修正後の再レビュー: 承認")
             pr.merge(merge_method="squash", commit_message=pr.title)
             return f"fixed_then_merged:{pr.html_url}"
         else:
-            pr.create_review(body="自動修正を試みましたが、承認条件を満たしません。追加対応が必要です。", event="COMMENT")
+            if not own_pr:
+                pr.create_review(body="自動修正を試みましたが、承認条件を満たしません。追加対応が必要です。", event="COMMENT")
+            else:
+                pr.create_issue_comment("自動修正を試みましたが、承認条件を満たしません。追加対応が必要です。")
             return f"fix_applied_needs_followup:{pr.html_url}"
 
     return f"review_completed:{pr.html_url}:{decision.action}"
