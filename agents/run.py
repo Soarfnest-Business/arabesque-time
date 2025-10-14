@@ -71,30 +71,30 @@ def run_propose(goal: str, push_and_pr: bool) -> Optional[str]:
 
     # Build a clean PR title/body
     changed_paths = [f.path for f in files]
-    title = f"[DGM] UI improvements: {goal[:60]}"
+    title = f"[DGM] UI改善: {goal[:60]}"
     body_lines = [
-        "### Summary",
+        "### 概要",
         goal,
         "",
-        "### Changes",
-        "- Scope limited to templates/*.html and static/*.css",
-        "- Small, low-risk UI tweaks (accessibility/readability)",
+        "### 変更点",
+        "- スコープは templates/*.html, static/*.css のみに限定",
+        "- 小さく安全なUI改善（アクセシビリティ/可読性）",
         "",
-        "### Modified Files",
+        "### 変更ファイル",
     ]
     for p in changed_paths:
         body_lines.append(f"- `{p}`")
     body_lines += [
         "",
-        "### Rationale",
-        "- Improve a11y (landmarks, skip links, icons hidden from screen readers)",
-        "- Remove inline styles; consolidate into CSS",
+        "### 目的",
+        "- アクセシビリティ（ランドマーク/スキップリンク/アイコンの読み上げ抑制）改善",
+        "- インラインスタイルの排除とCSSへの集約",
         "",
-        "### Validation",
-        "- Lint/format pass",
-        "- Visual smoke check (no layout break)",
+        "### 検証",
+        "- Lint/formatの通過",
+        "- 目視による表示崩れの確認",
         "",
-        "—\nThis PR was created by the DGM agent.",
+        "—\nこのPRはDGMエージェントにより自動作成されました。",
     ]
     pr_body = "\n".join(body_lines)
 

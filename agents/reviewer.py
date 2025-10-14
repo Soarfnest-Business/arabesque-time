@@ -62,11 +62,12 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
                 f"# {f['filename']} (+{f['additions']}/-{f['deletions']})\n{patch}"
             )
         content = "\n\n".join(parts)
-        system = (
-            "You are a strict code reviewer for a Flask+Jinja UI repo. "
-            "Focus on validity, safety, small diff size, allowed paths (templates/*.html, static/*.css, README.md). "
-            "Return a compact JSON: {action, summary, suggestions[]} where action is one of approve, request_changes, reject."
-        )
+    system = (
+        "あなたはFlask+JinjaのUI改善PRを審査する厳密なレビュアーです。"
+        "有効なHTML/CSS、後方互換性、小さく安全な差分、スコープ遵守（templates/*.html, static/*.css, README.md）に重点を置きます。"
+        "結論はJSONで返してください: {action, summary, suggestions[]}。actionは approve | request_changes | reject のいずれか。"
+        "summaryとsuggestionsは日本語で、簡潔に書いてください。"
+    )
         user = (
             f"Title: {title}\nBody: {body[:1000]}\nFiles and patches:\n{content}\n"
             "Decide based on: small changes, no backend breakage, HTML validity, CSS sanity, accessibility improvements."
@@ -131,8 +132,8 @@ def review_and_act(pr_number: int, auto_fix: bool = True, auto_merge: bool = Tru
         }[decision.action]
         pr.create_review(body=decision.summary, event=event)
     else:
-        # Use a plain comment to avoid 422 on self-reviews
-        pr.create_issue_comment(f"Auto-review (self): {decision.action}\n\n{decision.summary}")
+        # 自分のPRの場合はコメントで所見を残す（422回避）
+        pr.create_issue_comment(f"自動レビュー（自己PR）: {decision.action}\n\n{decision.summary}")
 
     if decision.action == "approve" and auto_merge:
         pr.merge(merge_method="squash", commit_message=pr.title)

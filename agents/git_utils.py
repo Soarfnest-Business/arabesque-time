@@ -80,27 +80,8 @@ def commit_all(message: str):
 
 
 def push_branch(branch: str):
-    token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
-    slug = parse_repo_slug_from_remote() or os.getenv("GITHUB_REPOSITORY")
-
-    if token and slug:
-        authed = f"https://x-access-token:{token}@github.com/{slug}.git"
-        try:
-            run(["git", "remote", "remove", "agent-origin"])  # best-effort cleanup
-        except Exception:
-            pass
-        try:
-            run(["git", "remote", "add", "agent-origin", authed])
-            run(["git", "push", "-u", "agent-origin", branch])
-        finally:
-            try:
-                run(["git", "remote", "remove", "agent-origin"])  # cleanup
-            except Exception:
-                pass
-        return
-
-    # Fallback (no token/slug): will likely fail; raise explicit error
-    raise RuntimeError("Cannot push: missing GITHUB_TOKEN/PAT or GITHUB_REPOSITORY")
+    remote = ensure_authed_remote()
+    run(["git", "push", "-u", remote, branch])
 
 
 def checkout_branch(branch: str):
@@ -108,4 +89,33 @@ def checkout_branch(branch: str):
 
 
 def fetch_branch(remote: str, branch: str):
-    run(["git", "fetch", remote, f"{branch}:{branch}"])
+    # Use provided remote if it exists; otherwise fall back to authed remote
+    try:
+        remotes = [r.strip() for r in run(["git", "remote"]).splitlines()]
+    except Exception:
+        remotes = []
+    use_remote = remote if remote in remotes else ensure_authed_remote()
+    run(["git", "fetch", use_remote, f"{branch}:{branch}"])
+
+
+def ensure_authed_remote() -> str:
+    """Ensure an authenticated remote exists and return its name.
+    Creates/updates 'agent-origin' pointing to https://x-access-token:<token>@github.com/<slug>.git
+    """
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
+    slug = parse_repo_slug_from_remote() or os.getenv("GITHUB_REPOSITORY")
+    if not (token and slug):
+        raise RuntimeError("Cannot configure remote: missing GITHUB_TOKEN/PAT or GITHUB_REPOSITORY")
+
+    authed = f"https://x-access-token:{token}@github.com/{slug}.git"
+    name = "agent-origin"
+    try:
+        # If remote exists, update URL; otherwise add
+        remotes = [r.strip() for r in run(["git", "remote"]).splitlines()]
+        if name in remotes:
+            run(["git", "remote", "set-url", name, authed])
+        else:
+            run(["git", "remote", "add", name, authed])
+    except Exception as e:
+        raise RuntimeError(f"Failed to configure authenticated remote: {e}")
+    return name
