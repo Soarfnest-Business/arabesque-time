@@ -14,6 +14,19 @@ import logging
 import statistics
 from collections import defaultdict
 import pytz
+from typing import Optional
+
+# Optional agent imports
+try:
+    from agents.run import run_propose
+    from agents.analyzer import Analyzer
+    from agents.git_utils import get_repo_root
+    from agents.reviewer import review_and_act
+except Exception:
+    run_propose = None  # type: ignore
+    Analyzer = None  # type: ignore
+    get_repo_root = None  # type: ignore
+    review_and_act = None  # type: ignore
 
 # 日本時間のタイムゾーン定義
 JST_TZ = pytz.timezone('Asia/Tokyo')
@@ -217,6 +230,60 @@ def handle_help(message, say):
 https://arabesque-time.onrender.com/
     """
     say(help_text)
+
+# メッセージでの提案（ワンショット）
+@slack_app.message(re.compile(r'^(?:agent\s+propose|提案)\s+(.+)', re.IGNORECASE))
+def agent_msg_propose(message, say):
+    goal = message.get('text', '')
+    m = re.search(r'^(?:agent\s+propose|提案)\s+(.+)', goal, flags=re.IGNORECASE)
+    if not m:
+        say("使用例: 提案 トップページの可読性改善")
+        return
+    goal_text = m.group(1).strip()
+    channel_id = message.get('channel')
+
+    if run_propose is None:
+        say("エージェント機能が無効です。サーバにagentsモジュールを配置してください。")
+        return
+    say(f"提案を開始します: {goal_text}\n検証後にPRリンクを共有します…")
+
+    def _do_propose():
+        try:
+            pr_url = run_propose(goal_text, push_and_pr=True)
+            if pr_url:
+                slack_client.chat_postMessage(channel=channel_id, text=f"✅ 提案が完了: {pr_url}")
+            else:
+                slack_client.chat_postMessage(channel=channel_id, text="✅ 提案を作成（PRなし）")
+        except Exception as e:
+            logger.error(f"Agent proposal failed: {e}")
+            slack_client.chat_postMessage(channel=channel_id, text=f"❌ 提案に失敗: {e}")
+
+    threading.Thread(target=_do_propose, daemon=True).start()
+
+# レビュー実行
+@slack_app.message(re.compile(r'^(?:レビュー|review)\s+(\d+)', re.IGNORECASE))
+def agent_msg_review(message, say):
+    text = message.get('text', '')
+    channel_id = message.get('channel')
+    m = re.search(r'^(?:レビュー|review)\s+(\d+)', text, flags=re.IGNORECASE)
+    if not m:
+        say("使用例: レビュー 42")
+        return
+    pr_number = int(m.group(1))
+    if review_and_act is None:
+        say("レビュー機能が利用不可です。サーバにagentsモジュールを配置してください。")
+        return
+    say(f"PR #{pr_number} の自動レビューを開始します…")
+
+    def _do():
+        try:
+            res = review_and_act(pr_number, auto_fix=True, auto_merge=True)
+            slack_client.chat_postMessage(channel=channel_id, text=f"レビュー完了: {res}")
+        except Exception as e:
+            logger.error(f"Auto-review failed: {e}")
+            slack_client.chat_postMessage(channel=channel_id, text=f"レビューに失敗: {e}")
+
+    threading.Thread(target=_do, daemon=True).start()
 
 # デバッグ用メッセージハンドラーを削除（本番環境では不要）
 # 代わりにapp_mentionsイベントのみ処理
