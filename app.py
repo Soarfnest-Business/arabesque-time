@@ -285,6 +285,219 @@ def agent_msg_review(message, say):
 
     threading.Thread(target=_do, daemon=True).start()
 
+# 全自動（提案→PR→レビュー→修正→マージ）
+@slack_app.message(re.compile(r'^(?:自動|全自動|auto|オート)(?:\s*(?:提案|レビュー|改善))?$', re.IGNORECASE))
+def agent_full_auto(message, say):
+    channel_id = message.get('channel')
+    thread_ts = message.get('ts')
+
+    if run_propose is None or review_and_act is None:
+        say("エージェント機能が無効です。agentsモジュールを確認してください。", thread_ts=thread_ts)
+        return
+
+    # 目標を自動生成（Analyzerがあれば利用）
+    goal = "UIの小規模改善（_base.html と style.cssの微修正）"
+    try:
+        if Analyzer and get_repo_root:
+            analyzer = Analyzer(get_repo_root())
+            result = analyzer.analyze()
+            targets = ", ".join(result.suggested_targets) or "UI全体（小）"
+            goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分・アクセシビリティ/可読性重視。"
+            say(f"初期分析完了。提案を作成します…\n- 目標: {goal}", thread_ts=thread_ts)
+        else:
+            say(f"提案を作成します…\n- 目標: {goal}", thread_ts=thread_ts)
+    except Exception as e:
+        logger.error(f"Analyzer failed: {e}")
+        say(f"簡易目標で進めます。\n- 目標: {goal}", thread_ts=thread_ts)
+
+    def _do_all():
+        try:
+            # 1) 提案→PR
+            pr_url = run_propose(goal, push_and_pr=True)
+            if not pr_url:
+                slack_client.chat_postMessage(channel=channel_id, text="❌ PR作成に失敗しました。", thread_ts=thread_ts)
+                return
+            slack_client.chat_postMessage(channel=channel_id, text=f"PR作成: {pr_url}\nレビューを実行します…", thread_ts=thread_ts)
+
+            # 2) PR番号抽出
+            m = re.search(r"/pull/(\d+)", pr_url)
+            if not m:
+                slack_client.chat_postMessage(channel=channel_id, text="PR番号の特定に失敗しました。", thread_ts=thread_ts)
+                return
+            pr_number = int(m.group(1))
+
+            # 3) レビュー→（必要であれば修正）→マージ
+            res = review_and_act(pr_number, auto_fix=True, auto_merge=True)
+            slack_client.chat_postMessage(channel=channel_id, text=f"最終結果: {res}", thread_ts=thread_ts)
+        except Exception as e:
+            logger.error(f"Full-auto failed: {e}")
+            slack_client.chat_postMessage(channel=channel_id, text=f"❌ 全自動処理に失敗: {e}", thread_ts=thread_ts)
+
+    threading.Thread(target=_do_all, daemon=True).start()
+
+// 提案/開始用の会話セッション管理
+SESSIONS = {}
+
+# 提案（キーワードのみ）: 自動スキャン→（任意質問）→確認→PR（提案モード）
+@slack_app.message(re.compile(r'^(?:提案|agent\\s*propose)\\s*$', re.IGNORECASE))
+def agent_msg_propose_interactive(message, say):
+    channel_id = message.get('channel')
+    user_id = message.get('user')
+    thread_ts = message.get('ts')
+
+    summary = "簡易スキャンのみ。詳細分析は有効時に実行されます。"
+    suggested_goal = "UIの小規模改善（_base.html と style.cssの微修正）"
+    questions = []
+    try:
+        if Analyzer and get_repo_root:
+            analyzer = Analyzer(get_repo_root())
+            result = analyzer.analyze()
+            summary = result.summary
+            targets = ", ".join(result.suggested_targets) or "UI全体（小）"
+            questions = result.questions or []
+            suggested_goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分。"
+    except Exception as e:
+        logger.error(f"Analyzer error: {e}")
+
+    say(f"初期分析:\n{summary}", thread_ts=thread_ts)
+    SESSIONS[channel_id] = {
+        "user": user_id,
+        "goal": suggested_goal,
+        "thread_ts": thread_ts,
+        "questions": questions,
+        "answers": [],
+        "q_index": 0,
+        "step": "ask" if questions else "confirm",
+        "full_auto": False,
+    }
+    if questions:
+        say(f"Q) {questions[0]}", thread_ts=thread_ts)
+    else:
+        say(
+            f"初期案: {suggested_goal}\n→『はい』で実行、『いいえ』で中止、または『修正: ...』で上書きできます。",
+            thread_ts=thread_ts,
+        )
+
+# 開始: フルフロー（分析→質問→確認→PR→レビュー→修正→マージ）
+@slack_app.message(re.compile(r'^(?:開始)$', re.IGNORECASE))
+def agent_msg_start_full(message, say):
+    channel_id = message.get('channel')
+    user_id = message.get('user')
+    thread_ts = message.get('ts')
+
+    summary = "簡易スキャンのみ。詳細分析は有効時に実行されます。"
+    suggested_goal = "UIの小規模改善（_base.html と style.cssの微修正）"
+    questions = []
+    try:
+        if Analyzer and get_repo_root:
+            analyzer = Analyzer(get_repo_root())
+            result = analyzer.analyze()
+            summary = result.summary
+            targets = ", ".join(result.suggested_targets) or "UI全体（小）"
+            questions = result.questions or []
+            suggested_goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分・A11y/可読性重視。"
+    except Exception as e:
+        logger.error(f"Analyzer error: {e}")
+
+    say(f"初期分析:\n{summary}", thread_ts=thread_ts)
+    SESSIONS[channel_id] = {
+        "user": user_id,
+        "goal": suggested_goal,
+        "thread_ts": thread_ts,
+        "questions": questions,
+        "answers": [],
+        "q_index": 0,
+        "step": "ask" if questions else "confirm",
+        "full_auto": True,
+    }
+    if questions:
+        say(f"Q) {questions[0]}", thread_ts=thread_ts)
+    else:
+        say(
+            f"初期案: {suggested_goal}\n→『はい』で実行、『いいえ』で中止、または『修正: ...』で上書きできます。",
+            thread_ts=thread_ts,
+        )
+
+
+@slack_app.message(re.compile(r'^.*$', re.DOTALL))
+def agent_msg_session_progress(message, say):
+    channel_id = message.get('channel') or ""
+    user_id = message.get('user') or ""
+    text = (message.get('text') or '').strip()
+    if channel_id not in SESSIONS:
+        return
+    sess = SESSIONS.get(channel_id) or {}
+    if sess.get('user') != user_id:
+        return
+    thread_ts = sess.get('thread_ts')
+
+    if text.lower().startswith('修正:') or text.startswith('修正：'):
+        new_goal = text.split(':', 1)[1].strip() if ':' in text else text
+        sess['goal'] = new_goal
+        say(f"修正を反映しました。『はい』で実行します。\n- 目標: {new_goal}", thread_ts=thread_ts)
+        return
+    # 質問に回答するフェーズ
+    if sess.get('step') == 'ask':
+        sess['answers'].append(text)
+        sess['q_index'] += 1
+        questions = sess.get('questions') or []
+        if sess['q_index'] < len(questions):
+            say(f"Q) {questions[sess['q_index']]}", thread_ts=thread_ts)
+            return
+        # すべて回答済み → 目標へ反映
+        if sess.get('answers'):
+            ans_summary = '; '.join(sess['answers'])[:200]
+            sess['goal'] = (sess.get('goal') or '') + f" 補足: {ans_summary}"
+        sess['step'] = 'confirm'
+        say(
+            f"最終案: {sess['goal']}\n→『はい』で実行、『いいえ』で中止、または『修正: ...』で上書きできます。",
+            thread_ts=thread_ts,
+        )
+        return
+    if text in {'はい', '実行', 'ok', 'OK', 'Go', 'go'}:
+        goal_text = sess.get('goal')
+        if not run_propose:
+            say("エージェント機能が無効です。agentsモジュールを確認してください。", thread_ts=thread_ts)
+            SESSIONS.pop(channel_id, None)
+            return
+        say(f"提案を実行します…\n- 目標: {goal_text}", thread_ts=thread_ts)
+
+        def _do():
+            try:
+                pr_url = run_propose(goal_text, push_and_pr=True)
+                if not pr_url:
+                    slack_client.chat_postMessage(channel=channel_id, text="✅ 提案を作成（PRなし）", thread_ts=thread_ts)
+                    return
+                slack_client.chat_postMessage(channel=channel_id, text=f"✅ 提案完了。PRを作成: {pr_url}", thread_ts=thread_ts)
+
+                # フルオートの場合は続けてレビュー→（必要なら修正）→マージ
+                if sess.get('full_auto') and review_and_act:
+                    m = re.search(r"/pull/(\d+)", pr_url)
+                    if m:
+                        pr_number = int(m.group(1))
+                        slack_client.chat_postMessage(channel=channel_id, text=f"レビューを実行します… (PR #{pr_number})", thread_ts=thread_ts)
+                        res = review_and_act(pr_number, auto_fix=True, auto_merge=True)
+                        slack_client.chat_postMessage(channel=channel_id, text=f"最終結果: {res}", thread_ts=thread_ts)
+            except Exception as e:
+                logger.error(f"Interactive proposal failed: {e}")
+                slack_client.chat_postMessage(channel=channel_id, text=f"❌ 提案に失敗: {e}", thread_ts=thread_ts)
+            finally:
+                SESSIONS.pop(channel_id, None)
+
+        threading.Thread(target=_do, daemon=True).start()
+        return
+    if text in {'いいえ', 'no', 'キャンセル', '中止'}:
+        say("提案をキャンセルしました。", thread_ts=thread_ts)
+        SESSIONS.pop(channel_id, None)
+        return
+    # 他メッセージはスルー
+    return
+
+# 既定の message イベントをACK（未対応メッセージでの404回避）
+@slack_app.event("message")
+def generic_message_ack(body, logger):
+    logger.debug("Unhandled message acked")
+
 # デバッグ用メッセージハンドラーを削除（本番環境では不要）
 # 代わりにapp_mentionsイベントのみ処理
 @slack_app.event("app_mention")
