@@ -44,7 +44,7 @@ class Proposer:
         import openai
 
         if not self.cfg.openai_api_key:
-            return self._fallback_small_change(goal)
+            raise RuntimeError("OpenAI API key not configured")
         openai.api_key = self.cfg.openai_api_key
 
         candidates: List[str] = []
@@ -96,14 +96,12 @@ class Proposer:
             total_lines += line_count
 
         if not results:
-            return self._fallback_small_change(goal)
+            raise RuntimeError("OpenAI returned no valid proposal")
         return results
 
     def propose(self, goal: str) -> List[ProposedFile]:
-        try:
-            return self._propose_with_openai(goal)
-        except Exception:
-            return self._fallback_small_change(goal)
+        # Propagate errors to the caller (no silent fallback)
+        return self._propose_with_openai(goal)
 
     def apply_files(self, files: List[ProposedFile]):
         for f in files:
@@ -111,4 +109,3 @@ class Proposer:
             os.makedirs(os.path.dirname(abs_path), exist_ok=True)
             with open(abs_path, "w", encoding="utf-8") as fp:
                 fp.write(f.content)
-

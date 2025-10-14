@@ -340,7 +340,24 @@ SESSIONS = {}
 
 # 提案（キーワードのみ）: 自動スキャン→（任意質問）→確認→PR（提案モード）
 @slack_app.message(re.compile(r'^(?:提案|agent\\s*propose)\\s*$', re.IGNORECASE))
-def agent_msg_propose_interactive(message, say):
+def agent_msg_propose_interactive(message, say, body=None):
+    # Deduplicate Slack retries using event_id
+    try:
+        if body and isinstance(body, dict):
+            ev_id = body.get('event_id')
+            if ev_id:
+                if not hasattr(app, 'processed_events'):
+                    app.processed_events = {}
+                now = int(datetime.now(timezone.utc).timestamp())
+                # prune
+                for k in list(app.processed_events.keys()):
+                    if now - app.processed_events[k] > 300:
+                        app.processed_events.pop(k, None)
+                if ev_id in app.processed_events:
+                    return
+                app.processed_events[ev_id] = now
+    except Exception:
+        pass
     channel_id = message.get('channel')
     user_id = message.get('user')
     thread_ts = message.get('ts')  # start of thread is this ts
@@ -358,6 +375,8 @@ def agent_msg_propose_interactive(message, say):
             suggested_goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分。"
     except Exception as e:
         logger.error(f"Analyzer error: {e}")
+        say(f"❌ 解析に失敗しました: {e}", thread_ts=thread_ts)
+        return
 
     say(f"初期分析:\n{summary}", thread_ts=thread_ts)
     session_key = f"{channel_id}:{thread_ts}"
@@ -381,7 +400,23 @@ def agent_msg_propose_interactive(message, say):
 
 # 開始: フルフロー（分析→質問→確認→PR→レビュー→修正→マージ）
 @slack_app.message(re.compile(r'^(?:開始)$', re.IGNORECASE))
-def agent_msg_start_full(message, say):
+def agent_msg_start_full(message, say, body=None):
+    # Deduplicate
+    try:
+        if body and isinstance(body, dict):
+            ev_id = body.get('event_id')
+            if ev_id:
+                if not hasattr(app, 'processed_events'):
+                    app.processed_events = {}
+                now = int(datetime.now(timezone.utc).timestamp())
+                for k in list(app.processed_events.keys()):
+                    if now - app.processed_events[k] > 300:
+                        app.processed_events.pop(k, None)
+                if ev_id in app.processed_events:
+                    return
+                app.processed_events[ev_id] = now
+    except Exception:
+        pass
     channel_id = message.get('channel')
     user_id = message.get('user')
     thread_ts = message.get('ts')  # start of thread is this ts
@@ -399,6 +434,8 @@ def agent_msg_start_full(message, say):
             suggested_goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分・A11y/可読性重視。"
     except Exception as e:
         logger.error(f"Analyzer error: {e}")
+        say(f"❌ 解析に失敗しました: {e}", thread_ts=thread_ts)
+        return
 
     say(f"初期分析:\n{summary}", thread_ts=thread_ts)
     session_key = f"{channel_id}:{thread_ts}"
@@ -422,7 +459,23 @@ def agent_msg_start_full(message, say):
 
 
 @slack_app.message(re.compile(r'^.*$', re.DOTALL))
-def agent_msg_session_progress(message, say):
+def agent_msg_session_progress(message, say, body=None):
+    # Deduplicate
+    try:
+        if body and isinstance(body, dict):
+            ev_id = body.get('event_id')
+            if ev_id:
+                if not hasattr(app, 'processed_events'):
+                    app.processed_events = {}
+                now = int(datetime.now(timezone.utc).timestamp())
+                for k in list(app.processed_events.keys()):
+                    if now - app.processed_events[k] > 300:
+                        app.processed_events.pop(k, None)
+                if ev_id in app.processed_events:
+                    return
+                app.processed_events[ev_id] = now
+    except Exception:
+        pass
     channel_id = message.get('channel') or ""
     user_id = message.get('user') or ""
     text = (message.get('text') or '').strip()

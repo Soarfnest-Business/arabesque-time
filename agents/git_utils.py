@@ -80,30 +80,27 @@ def commit_all(message: str):
 
 
 def push_branch(branch: str):
-    try:
-        url = run(["git", "remote", "get-url", "origin"]) or ""
-    except Exception:
-        url = ""
     token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
-    if token and url.startswith("https://") and "github.com" in url:
-        # Build an authenticated remote URL using repo slug instead to avoid existing userinfo
-        slug = parse_repo_slug_from_remote()
-        if slug:
-            authed = f"https://x-access-token:{token}@github.com/{slug}.git"
+    slug = parse_repo_slug_from_remote() or os.getenv("GITHUB_REPOSITORY")
+
+    if token and slug:
+        authed = f"https://x-access-token:{token}@github.com/{slug}.git"
+        try:
+            run(["git", "remote", "remove", "agent-origin"])  # best-effort cleanup
+        except Exception:
+            pass
+        try:
+            run(["git", "remote", "add", "agent-origin", authed])
+            run(["git", "push", "-u", "agent-origin", branch])
+        finally:
             try:
-                run(["git", "remote", "remove", "agent-origin"])  # best-effort cleanup
+                run(["git", "remote", "remove", "agent-origin"])  # cleanup
             except Exception:
                 pass
-            try:
-                run(["git", "remote", "add", "agent-origin", authed])
-                run(["git", "push", "-u", "agent-origin", branch])
-            finally:
-                try:
-                    run(["git", "remote", "remove", "agent-origin"])  # cleanup
-                except Exception:
-                    pass
-            return
-    run(["git", "push", "-u", "origin", branch])
+        return
+
+    # Fallback (no token/slug): will likely fail; raise explicit error
+    raise RuntimeError("Cannot push: missing GITHUB_TOKEN/PAT or GITHUB_REPOSITORY")
 
 
 def checkout_branch(branch: str):
@@ -112,4 +109,3 @@ def checkout_branch(branch: str):
 
 def fetch_branch(remote: str, branch: str):
     run(["git", "fetch", remote, f"{branch}:{branch}"])
-

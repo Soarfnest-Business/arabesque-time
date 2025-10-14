@@ -182,6 +182,8 @@ class Analyzer:
             questions=questions[:2],
             risks=risks,
         )
-        # Try OpenAI refinement
+        # Require OpenAI refinement (error if unavailable)
         refined = self._openai_refine(base, html_files, css_files)
-        return refined or base
+        if refined is None:
+            raise RuntimeError("OpenAI analysis is required but unavailable or failed")
+        return refined

@@ -44,7 +44,7 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
         import openai
 
         if not cfg.openai_api_key:
-            raise RuntimeError("missing api key")
+            raise RuntimeError("OpenAI API key not configured")
         openai.api_key = cfg.openai_api_key
 
         # Keep prompt concise: include filenames and truncated patches
@@ -82,24 +82,8 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
         if action not in {"approve", "request_changes", "reject"}:
             action = "request_changes"
         return ReviewDecision(action=action, summary=summary, suggestions=suggestions)
-    except Exception:
-        # Heuristic fallback: approve if only allowed files and small diff
-        allowed = 0
-        for f in files:
-            name = f.get("filename", "")
-            if name.endswith((".html", ".css")) and (
-                name.startswith("templates/") or name.startswith("static/")
-            ):
-                allowed += 1
-            elif name == "README.md":
-                allowed += 1
-            else:
-                return ReviewDecision(
-                    action="request_changes",
-                    summary="不許可のファイルが含まれています。UIスコープに限定してください。",
-                    suggestions=["templates/*.html と static/*.css のみに変更を限定"],
-                )
-        return ReviewDecision(action="approve", summary="小さなUI変更のみ", suggestions=[])
+    except Exception as e:
+        raise RuntimeError(f"OpenAI review failed: {e}")
 
 
 def review_and_act(pr_number: int, auto_fix: bool = True, auto_merge: bool = True) -> str:
@@ -185,4 +169,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
