@@ -354,6 +354,7 @@ def agent_msg_propose_interactive(message, say, body=None):
                     if now - app.processed_events[k] > 300:
                         app.processed_events.pop(k, None)
                 if ev_id in app.processed_events:
+                    logger.info("flow.dedup.hit event_id=%s", ev_id)
                     return
                 app.processed_events[ev_id] = now
     except Exception:
@@ -374,12 +375,13 @@ def agent_msg_propose_interactive(message, say, body=None):
             questions = result.questions or []
             suggested_goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分。"
     except Exception as e:
-        logger.error(f"Analyzer error: {e}")
+        logger.exception("flow.analyzer.failed")
         say(f"❌ 解析に失敗しました: {e}", thread_ts=thread_ts)
         return
 
     say(f"初期分析:\n{summary}", thread_ts=thread_ts)
     session_key = f"{channel_id}:{thread_ts}"
+    logger.info("flow.start event_id=%s channel=%s ts=%s session_key=%s", (body or {}).get('event_id') if isinstance(body, dict) else None, channel_id, thread_ts, session_key)
     SESSIONS[session_key] = {
         "user": user_id,
         "goal": suggested_goal,
@@ -413,6 +415,7 @@ def agent_msg_start_full(message, say, body=None):
                     if now - app.processed_events[k] > 300:
                         app.processed_events.pop(k, None)
                 if ev_id in app.processed_events:
+                    logger.info("flow.dedup.hit event_id=%s", ev_id)
                     return
                 app.processed_events[ev_id] = now
     except Exception:
@@ -433,12 +436,13 @@ def agent_msg_start_full(message, say, body=None):
             questions = result.questions or []
             suggested_goal = f"{result.suggested_area} の改善。対象: {targets}。制約: 破壊的変更なし・小規模差分・A11y/可読性重視。"
     except Exception as e:
-        logger.error(f"Analyzer error: {e}")
+        logger.exception("flow.analyzer.failed")
         say(f"❌ 解析に失敗しました: {e}", thread_ts=thread_ts)
         return
 
     say(f"初期分析:\n{summary}", thread_ts=thread_ts)
     session_key = f"{channel_id}:{thread_ts}"
+    logger.info("flow.start event_id=%s channel=%s ts=%s session_key=%s", (body or {}).get('event_id') if isinstance(body, dict) else None, channel_id, thread_ts, session_key)
     SESSIONS[session_key] = {
         "user": user_id,
         "goal": suggested_goal,
@@ -472,6 +476,7 @@ def agent_msg_session_progress(message, say, body=None):
                     if now - app.processed_events[k] > 300:
                         app.processed_events.pop(k, None)
                 if ev_id in app.processed_events:
+                    logger.info("flow.dedup.hit event_id=%s", ev_id)
                     return
                 app.processed_events[ev_id] = now
     except Exception:
@@ -1516,6 +1521,23 @@ def health_check():
 def favicon():
     """Faviconエンドポイント（404エラー対策）"""
     return '', 204
+
+# 簡易診断用（必要に応じて無効化推奨）
+@app.route('/diag')
+def diag():
+    try:
+        key_present = bool(os.getenv('OPENAI_API_KEY') or os.getenv('OPEN_AI') or os.getenv('OPENAI_KEY'))
+        model = os.getenv('OPENAI_MODEL')
+        gh_repo = os.getenv('GITHUB_REPOSITORY')
+        gh_tok_present = bool(os.getenv('GITHUB_TOKEN') or os.getenv('GITHUB_PAT'))
+        return jsonify({
+            'openai_key_present': key_present,
+            'openai_model': model,
+            'github_repo': gh_repo,
+            'github_token_present': gh_tok_present,
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # データベース初期化コマンド
 @app.cli.command()

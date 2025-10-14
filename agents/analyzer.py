@@ -1,10 +1,14 @@
 import os
 import re
 import json
+import logging
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
 from .config import AgentConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,6 +72,7 @@ class Analyzer:
                 + context
             )
 
+            t0 = time.monotonic()
             resp = openai.chat.completions.create(
                 model=self.cfg.openai_model,
                 messages=[
@@ -75,6 +80,14 @@ class Analyzer:
                     {"role": "user", "content": user},
                 ],
                 temperature=0.2,
+            )
+            dt = time.monotonic() - t0
+            logger.info(
+                "analyzer.openai.call.ok model=%s dt=%.2fs html=%d css=%d",
+                self.cfg.openai_model,
+                dt,
+                len(html_files),
+                len(css_files),
             )
             txt = resp.choices[0].message.content or "{}"
             data = json.loads(txt)
@@ -102,7 +115,8 @@ class Analyzer:
                 questions=questions[:3],
                 risks=risks,
             )
-        except Exception:
+        except Exception as e:
+            logger.exception("analyzer.openai.call.failed model=%s", self.cfg.openai_model)
             return None
 
     def analyze(self) -> AnalysisResult:
@@ -182,7 +196,15 @@ class Analyzer:
             questions=questions[:2],
             risks=risks,
         )
-        # Require OpenAI refinement (error if unavailable)
+        # Diagnostics before refine
+        key_present = bool(self.cfg.openai_api_key)
+        logger.info(
+            "analyzer.openai.start key_present=%s model=%s html=%d css=%d",
+            key_present,
+            self.cfg.openai_model,
+            len(html_files),
+            len(css_files),
+        )
         refined = self._openai_refine(base, html_files, css_files)
         if refined is None:
             raise RuntimeError("OpenAI analysis is required but unavailable or failed")

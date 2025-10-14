@@ -1,5 +1,7 @@
 import json
 import os
+import logging
+import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -13,6 +15,8 @@ from .git_utils import (
     push_branch,
 )
 from .proposer import Proposer
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -66,6 +70,8 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
             f"Title: {title}\nBody: {body[:1000]}\nFiles and patches:\n{content}\n"
             "Decide based on: small changes, no backend breakage, HTML validity, CSS sanity, accessibility improvements."
         )
+        logger.info("reviewer.openai.start model=%s files=%d", cfg.openai_model, len(files))
+        t0 = time.monotonic()
         resp = openai.chat.completions.create(
             model=cfg.openai_model,
             messages=[
@@ -74,6 +80,8 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
             ],
             temperature=0.0,
         )
+        dt = time.monotonic() - t0
+        logger.info("reviewer.openai.call.ok model=%s dt=%.2fs", cfg.openai_model, dt)
         txt = resp.choices[0].message.content or "{}"
         data = json.loads(txt)
         action = data.get("action", "request_changes")
@@ -83,6 +91,7 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
             action = "request_changes"
         return ReviewDecision(action=action, summary=summary, suggestions=suggestions)
     except Exception as e:
+        logger.exception("reviewer.openai.call.failed model=%s", cfg.openai_model)
         raise RuntimeError(f"OpenAI review failed: {e}")
 
 

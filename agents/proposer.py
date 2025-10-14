@@ -1,10 +1,13 @@
 import json
 import os
 import time
+import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
 from .config import AgentConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,6 +49,7 @@ class Proposer:
         if not self.cfg.openai_api_key:
             raise RuntimeError("OpenAI API key not configured")
         openai.api_key = self.cfg.openai_api_key
+        logger.info("proposer.openai.start model=%s goal_len=%d", self.cfg.openai_model, len(goal))
 
         candidates: List[str] = []
         for root, _dirs, files in os.walk(self.repo_root):
@@ -54,6 +58,7 @@ class Proposer:
                 if self._is_allowed(rel):
                     candidates.append(rel)
         candidates = sorted(candidates)[:20]
+        logger.info("proposer.openai.files candidates=%d", len(candidates))
 
         system = (
             "You are a careful code editor. Generate small, safe UI-focused edits. "
@@ -66,6 +71,7 @@ class Proposer:
             + "\n- ".join(candidates)
             + "\nConstraints: max 3 files, max ~250 lines total."
         )
+        t0 = time.monotonic()
         resp = openai.chat.completions.create(
             model=self.cfg.openai_model,
             messages=[
@@ -74,11 +80,14 @@ class Proposer:
             ],
             temperature=0.2,
         )
+        dt = time.monotonic() - t0
+        logger.info("proposer.openai.call.ok model=%s dt=%.2fs", self.cfg.openai_model, dt)
         text = resp.choices[0].message.content or "[]"
         try:
             data = json.loads(text)
-        except json.JSONDecodeError:
-            return self._fallback_small_change(goal)
+        except json.JSONDecodeError as e:
+            logger.exception("proposer.openai.decode.failed")
+            raise RuntimeError("OpenAI returned no valid proposal") from e
 
         results: List[ProposedFile] = []
         total_lines = 0
