@@ -9,3 +9,4 @@ gunicorn==23.0.0
 pytz==2024.1 
 PyGithub==2.4.0
 openai==1.51.0
+httpx==0.26.1

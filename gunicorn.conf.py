@@ -3,7 +3,8 @@ import multiprocessing
 
 # Basic configuration（Render最適化）
 bind = f"0.0.0.0:{os.environ.get('PORT', 10000)}"  # Renderのデフォルトポート10000を使用
-workers = min(2, multiprocessing.cpu_count())  # ワーカー数を調整（Renderに最適化）
+# Slackイベントの重複処理を避けるため、まずはワーカーを1に固定
+workers = 1
 worker_class = "sync"
 worker_connections = 1000
 max_requests = 1000
