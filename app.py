@@ -343,7 +343,7 @@ SESSIONS = {}
 def agent_msg_propose_interactive(message, say):
     channel_id = message.get('channel')
     user_id = message.get('user')
-    thread_ts = message.get('ts')
+    thread_ts = message.get('ts')  # start of thread is this ts
 
     summary = "簡易スキャンのみ。詳細分析は有効時に実行されます。"
     suggested_goal = "UIの小規模改善（_base.html と style.cssの微修正）"
@@ -360,7 +360,8 @@ def agent_msg_propose_interactive(message, say):
         logger.error(f"Analyzer error: {e}")
 
     say(f"初期分析:\n{summary}", thread_ts=thread_ts)
-    SESSIONS[channel_id] = {
+    session_key = f"{channel_id}:{thread_ts}"
+    SESSIONS[session_key] = {
         "user": user_id,
         "goal": suggested_goal,
         "thread_ts": thread_ts,
@@ -383,7 +384,7 @@ def agent_msg_propose_interactive(message, say):
 def agent_msg_start_full(message, say):
     channel_id = message.get('channel')
     user_id = message.get('user')
-    thread_ts = message.get('ts')
+    thread_ts = message.get('ts')  # start of thread is this ts
 
     summary = "簡易スキャンのみ。詳細分析は有効時に実行されます。"
     suggested_goal = "UIの小規模改善（_base.html と style.cssの微修正）"
@@ -400,7 +401,8 @@ def agent_msg_start_full(message, say):
         logger.error(f"Analyzer error: {e}")
 
     say(f"初期分析:\n{summary}", thread_ts=thread_ts)
-    SESSIONS[channel_id] = {
+    session_key = f"{channel_id}:{thread_ts}"
+    SESSIONS[session_key] = {
         "user": user_id,
         "goal": suggested_goal,
         "thread_ts": thread_ts,
@@ -424,12 +426,17 @@ def agent_msg_session_progress(message, say):
     channel_id = message.get('channel') or ""
     user_id = message.get('user') or ""
     text = (message.get('text') or '').strip()
-    if channel_id not in SESSIONS:
+    # Determine thread root ts: replies have thread_ts; new messages have ts
+    root_ts = message.get('thread_ts') or message.get('ts')
+    session_key = f"{channel_id}:{root_ts}"
+    if session_key not in SESSIONS:
         return
-    sess = SESSIONS.get(channel_id) or {}
+    sess = SESSIONS.get(session_key) or {}
     if sess.get('user') != user_id:
         return
     thread_ts = sess.get('thread_ts')
+
+    logger.info(f"session_progress text='{text}' user={user_id} key={session_key} step={sess.get('step')}")
 
     if text.lower().startswith('修正:') or text.startswith('修正：'):
         new_goal = text.split(':', 1)[1].strip() if ':' in text else text
@@ -458,7 +465,7 @@ def agent_msg_session_progress(message, say):
         goal_text = sess.get('goal')
         if not run_propose:
             say("エージェント機能が無効です。agentsモジュールを確認してください。", thread_ts=thread_ts)
-            SESSIONS.pop(channel_id, None)
+            SESSIONS.pop(session_key, None)
             return
         say(f"提案を実行します…\n- 目標: {goal_text}", thread_ts=thread_ts)
 
@@ -482,13 +489,13 @@ def agent_msg_session_progress(message, say):
                 logger.error(f"Interactive proposal failed: {e}")
                 slack_client.chat_postMessage(channel=channel_id, text=f"❌ 提案に失敗: {e}", thread_ts=thread_ts)
             finally:
-                SESSIONS.pop(channel_id, None)
-
+                SESSIONS.pop(session_key, None)
+        
         threading.Thread(target=_do, daemon=True).start()
         return
     if text in {'いいえ', 'no', 'キャンセル', '中止'}:
         say("提案をキャンセルしました。", thread_ts=thread_ts)
-        SESSIONS.pop(channel_id, None)
+        SESSIONS.pop(session_key, None)
         return
     # 他メッセージはスルー
     return

@@ -1,7 +1,10 @@
 import os
 import re
+import json
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
+
+from .config import AgentConfig
 
 
 @dataclass
@@ -14,8 +17,9 @@ class AnalysisResult:
 
 
 class Analyzer:
-    def __init__(self, repo_root: str):
+    def __init__(self, repo_root: str, cfg: Optional[AgentConfig] = None):
         self.root = repo_root
+        self.cfg = cfg or AgentConfig()
 
     def _read(self, rel: str) -> str:
         try:
@@ -23,6 +27,83 @@ class Analyzer:
                 return f.read()
         except Exception:
             return ""
+
+    def _openai_refine(self, base: AnalysisResult, html_files: List[str], css_files: List[str]) -> Optional[AnalysisResult]:
+        """Use OpenAI to refine summary/targets/questions based on repository context."""
+        api_key = self.cfg.openai_api_key
+        if not api_key:
+            return None
+        try:
+            import openai
+
+            openai.api_key = api_key
+
+            # Prepare small context: list files and tiny snippets
+            def snippet(path: str) -> str:
+                try:
+                    txt = self._read(path)
+                    return txt[:600]
+                except Exception:
+                    return ""
+
+            html_list = html_files[:6]
+            css_list = css_files[:3]
+            parts = []
+            for p in html_list:
+                parts.append(f"# {p}\n" + snippet(p))
+            for p in css_list:
+                parts.append(f"# {p}\n" + snippet(p))
+            context = "\n\n".join(parts)
+
+            system = (
+                "You are a senior UX/UI reviewer for a Flask+Jinja app. "
+                "Propose practical, small, low-risk UI improvements. "
+                "Return strict JSON with keys: summary, suggested_area, suggested_targets[], questions[], risks[]."
+            )
+            user = (
+                "Current findings: "
+                + base.summary
+                + "\nFocus on accessible, non-breaking improvements in templates/*.html and static/*.css only.\n"
+                + "Repository context (truncated snippets):\n"
+                + context
+            )
+
+            resp = openai.chat.completions.create(
+                model=self.cfg.openai_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.2,
+            )
+            txt = resp.choices[0].message.content or "{}"
+            data = json.loads(txt)
+            summary = data.get("summary") or base.summary
+            suggested_area = data.get("suggested_area") or base.suggested_area
+            suggested_targets = data.get("suggested_targets") or base.suggested_targets
+            questions = data.get("questions") or base.questions
+            risks = data.get("risks") or base.risks
+            # Keep targets limited and within repo
+            filtered_targets = []
+            for t in suggested_targets[:5]:
+                if isinstance(t, str) and (
+                    (t.startswith("templates/") and t.endswith(".html"))
+                    or (t.startswith("static/") and t.endswith(".css"))
+                ):
+                    if os.path.exists(os.path.join(self.root, t)):
+                        filtered_targets.append(t)
+            if not filtered_targets:
+                filtered_targets = base.suggested_targets
+
+            return AnalysisResult(
+                summary=summary,
+                suggested_area=suggested_area,
+                suggested_targets=filtered_targets,
+                questions=questions[:3],
+                risks=risks,
+            )
+        except Exception:
+            return None
 
     def analyze(self) -> AnalysisResult:
         html_files: List[str] = []
@@ -94,11 +175,13 @@ class Analyzer:
             + "; 初期提案: "
             + ("; ".join(suggestions))
         )
-        return AnalysisResult(
+        base = AnalysisResult(
             summary=summary,
             suggested_area="UI/アクセシビリティと可読性",
             suggested_targets=targets[:3],
             questions=questions[:2],
             risks=risks,
         )
-
+        # Try OpenAI refinement
+        refined = self._openai_refine(base, html_files, css_files)
+        return refined or base
