@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from .config import AgentConfig
+from .llm import chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +74,13 @@ class Analyzer:
             )
 
             t0 = time.monotonic()
-            resp = openai.chat.completions.create(
-                model=self.cfg.openai_model,
-                messages=[
+            resp = chat_completion(
+                self.cfg,
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                model=self.cfg.openai_model,
                 temperature=0.2,
             )
             dt = time.monotonic() - t0

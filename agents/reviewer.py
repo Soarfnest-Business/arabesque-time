@@ -15,6 +15,7 @@ from .git_utils import (
     push_branch,
 )
 from .proposer import Proposer
+from .llm import chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,13 @@ def _openai_decide(cfg: AgentConfig, title: str, body: str, files: List[dict]) -
         )
         logger.info("reviewer.openai.start model=%s files=%d", cfg.openai_model, len(files))
         t0 = time.monotonic()
-        resp = openai.chat.completions.create(
-            model=cfg.openai_model,
-            messages=[
+        resp = chat_completion(
+            cfg,
+            [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            model=cfg.openai_model,
             temperature=0.0,
         )
         dt = time.monotonic() - t0

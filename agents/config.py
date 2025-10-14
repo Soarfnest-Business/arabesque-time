@@ -23,7 +23,9 @@ class AgentConfig:
     openai_api_key: str = (
         os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI") or os.getenv("OPENAI_KEY") or ""
     )
+    # Optional enterprise/proxy params
+    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "")
+    openai_org: str = os.getenv("OPENAI_ORG") or os.getenv("OPENAI_ORGANIZATION", "")
 
     github_token: str = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT") or ""
     github_repo: str = os.getenv("GITHUB_REPOSITORY", "")
-
