@@ -2,6 +2,17 @@
 
 Slackボットと連携した出退勤管理システムです。
 
+## デプロイ状況
+
+> **現在このアプリは稼働していません（2026-06-01 時点）。**
+>
+> - Render 上の Web サービス `arabesque-time`（`https://arabesque-time.onrender.com`）は **削除済み**。
+> - これに伴い Slack の Event Subscriptions / OAuth の Request URL は無効になっています。
+> - `DATABASE_URL` が指す外部データベースの実データは Render 削除では消えないため、別途管理が必要です。
+> - シークレット類（`SLACK_BOT_TOKEN` / `SLACK_*` / `OPEN_AI` / `GITHUB_PAT` / `SECRET_KEY` など）は各サービス側でローテーション・失効していない限り有効なままです。
+>
+> 再稼働する場合は、ホスティング先へ再デプロイし、Slack App 側の Request URL / Redirect URL を新ドメインに更新してください。
+
 ## 機能
 
 - Slackボットによる出退勤打刻
